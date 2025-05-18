@@ -1,42 +1,71 @@
 import os
 import json
+import logging
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize recommendations_data as empty dict
 recommendations_data = {}
 
 # Try to load pre-computed recommendations
 try:
-    with open('precomputed_recommendations.json', 'r') as f:
+    logger.info("Loading recommendations data...")
+    with open('precomputed_recommendations.json', 'r', encoding='utf-8') as f:
         recommendations_data = json.load(f)
-    print("Successfully loaded recommendations data")
+    logger.info(f"Successfully loaded recommendations data with {len(recommendations_data)} entries")
 except Exception as e:
-    print(f"Error loading recommendations: {str(e)}")
+    logger.error(f"Error loading recommendations: {str(e)}")
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        logger.error(f"Error rendering index: {str(e)}")
+        return "An error occurred while loading the page. Please try again later.", 500
 
 @app.route('/recommend', methods=['POST'])
 def recommend():
     if request.method == 'POST':
         # Check if recommendations are loaded
         if not recommendations_data:
+            logger.error("Recommendations data not available")
             return jsonify({
                 'success': False,
                 'error': 'Recommendations data not available. Please try again later.'
-            })
+            }), 503
 
         try:
             data = request.get_json()
-            genre_preference = data.get('genre', '').split(',')[0].strip()  # Take first genre
+            if not data:
+                raise ValueError("No JSON data received")
+
+            # Extract and validate inputs
+            genre_preference = data.get('genre', '').strip()
+            if not genre_preference:
+                raise ValueError("Genre preference is required")
+
             runtime_pref = data.get('runtime', 'medium')
+            if runtime_pref not in ['short', 'medium', 'long']:
+                runtime_pref = 'medium'
+
             age = int(data.get('age', 18))
+            if not (1 <= age <= 120):
+                age = 18
+
             top_n = int(data.get('top_n', 5))
+            if top_n not in [5, 10, 15]:
+                top_n = 5
+
             min_rating = float(data.get('min_rating', 8.0))
-            
+            if min_rating not in [7.0, 7.5, 8.0, 8.5]:
+                min_rating = 8.0
+
             recommendations = get_recommendations(
                 genre_preference, 
                 runtime_pref, 
@@ -45,12 +74,18 @@ def recommend():
                 min_rating=min_rating
             )
             return jsonify({'success': True, 'recommendations': recommendations})
-        except Exception as e:
-            print(f"Error in recommend endpoint: {str(e)}")
+        except ValueError as ve:
+            logger.warning(f"Validation error: {str(ve)}")
             return jsonify({
                 'success': False,
-                'error': f'Error processing request: {str(e)}'
-            })
+                'error': str(ve)
+            }), 400
+        except Exception as e:
+            logger.error(f"Error in recommend endpoint: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': 'An error occurred while processing your request.'
+            }), 500
 
 def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating=8.0):
     """
@@ -59,14 +94,6 @@ def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating
     if not recommendations_data:
         raise Exception("Recommendations data not loaded")
 
-    # Round min_rating to nearest available value
-    available_ratings = [7.0, 7.5, 8.0, 8.5]
-    min_rating = min(available_ratings, key=lambda x: abs(x - min_rating))
-    
-    # Ensure top_n is one of the available values
-    available_top_ns = [5, 10, 15]
-    top_n = min(available_top_ns, key=lambda x: abs(x - top_n))
-    
     # Map age to representative age
     if age < 10:
         mapped_age = 8
@@ -79,6 +106,7 @@ def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating
     
     # Create the key
     key = f"{genre_preference}_{runtime_pref}_{mapped_age}_{min_rating}_{top_n}"
+    logger.info(f"Looking for recommendations with key: {key}")
     
     # Get recommendations
     if key in recommendations_data:
@@ -88,7 +116,9 @@ def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating
         import difflib
         closest_matches = difflib.get_close_matches(key, recommendations_data.keys(), n=1)
         if not closest_matches:
-            raise Exception(f"No recommendations found for {key}")
+            logger.warning(f"No recommendations found for key: {key}")
+            return []
+        logger.info(f"Using closest match: {closest_matches[0]}")
         return recommendations_data[closest_matches[0]]
 
 if __name__ == '__main__':
