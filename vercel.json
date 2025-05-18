@@ -3,12 +3,24 @@
   "builds": [
     {
       "src": "app.py",
-      "use": "@vercel/python"
+      "use": "@vercel/python",
+      "config": {
+        "maxLambdaSize": "5mb",
+        "includeFiles": [
+          "templates/**",
+          "static/**",
+          "movie_recommender.joblib"
+        ]
+      }
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/(.*)", 
       "dest": "app.py"
     }
   ]
