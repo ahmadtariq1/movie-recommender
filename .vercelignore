@@ -2,7 +2,7 @@
 !app.py
 !templates/
 !static/
-!movie_recommender.joblib
+!precomputed_recommendations.json
 !requirements.txt
 !vercel.json
 .git

@@ -4,9 +4,16 @@ from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-# Load pre-computed recommendations
-with open('precomputed_recommendations.json', 'r') as f:
-    recommendations_data = json.load(f)
+# Initialize recommendations_data as empty dict
+recommendations_data = {}
+
+# Try to load pre-computed recommendations
+try:
+    with open('precomputed_recommendations.json', 'r') as f:
+        recommendations_data = json.load(f)
+    print("Successfully loaded recommendations data")
+except Exception as e:
+    print(f"Error loading recommendations: {str(e)}")
 
 @app.route('/')
 def index():
@@ -15,14 +22,21 @@ def index():
 @app.route('/recommend', methods=['POST'])
 def recommend():
     if request.method == 'POST':
-        data = request.get_json()
-        genre_preference = data.get('genre', '').split(',')[0].strip()  # Take first genre
-        runtime_pref = data.get('runtime', 'medium')
-        age = int(data.get('age', 18))
-        top_n = int(data.get('top_n', 5))
-        min_rating = float(data.get('min_rating', 8.0))
-        
+        # Check if recommendations are loaded
+        if not recommendations_data:
+            return jsonify({
+                'success': False,
+                'error': 'Recommendations data not available. Please try again later.'
+            })
+
         try:
+            data = request.get_json()
+            genre_preference = data.get('genre', '').split(',')[0].strip()  # Take first genre
+            runtime_pref = data.get('runtime', 'medium')
+            age = int(data.get('age', 18))
+            top_n = int(data.get('top_n', 5))
+            min_rating = float(data.get('min_rating', 8.0))
+            
             recommendations = get_recommendations(
                 genre_preference, 
                 runtime_pref, 
@@ -32,12 +46,19 @@ def recommend():
             )
             return jsonify({'success': True, 'recommendations': recommendations})
         except Exception as e:
-            return jsonify({'success': False, 'error': str(e)})
+            print(f"Error in recommend endpoint: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': f'Error processing request: {str(e)}'
+            })
 
 def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating=8.0):
     """
     Get pre-computed recommendations based on user preferences
     """
+    if not recommendations_data:
+        raise Exception("Recommendations data not loaded")
+
     # Round min_rating to nearest available value
     available_ratings = [7.0, 7.5, 8.0, 8.5]
     min_rating = min(available_ratings, key=lambda x: abs(x - min_rating))
@@ -65,8 +86,10 @@ def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating
     else:
         # Return closest match if exact key not found
         import difflib
-        closest_key = difflib.get_close_matches(key, recommendations_data.keys(), n=1)[0]
-        return recommendations_data[closest_key]
+        closest_matches = difflib.get_close_matches(key, recommendations_data.keys(), n=1)
+        if not closest_matches:
+            raise Exception(f"No recommendations found for {key}")
+        return recommendations_data[closest_matches[0]]
 
 if __name__ == '__main__':
     app.run(debug=True)
