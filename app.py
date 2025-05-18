@@ -15,7 +15,12 @@ recommendations_data = {}
 # Try to load pre-computed recommendations
 try:
     logger.info("Loading recommendations data...")
-    with open('precomputed_recommendations.json', 'r', encoding='utf-8') as f:
+    # Get the absolute path to the JSON file
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    json_path = os.path.join(base_dir, 'precomputed_recommendations.json')
+    logger.info(f"Looking for recommendations file at: {json_path}")
+    
+    with open(json_path, 'r', encoding='utf-8') as f:
         recommendations_data = json.load(f)
     logger.info(f"Successfully loaded recommendations data with {len(recommendations_data)} entries")
 except Exception as e:
