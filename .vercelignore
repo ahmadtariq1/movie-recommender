@@ -5,3 +5,9 @@
 !movie_recommender.joblib
 !requirements.txt
 !vercel.json
+.git
+.gitignore
+*.pyc
+__pycache__
+generate_recommendations.py
+runtime.txt
