@@ -1,11 +1,12 @@
 import os
-import joblib
+import json
 from flask import Flask, render_template, request, jsonify
 
 app = Flask(__name__)
 
-# Load the model
-model = joblib.load('movie_recommender.joblib')
+# Load pre-computed recommendations
+with open('precomputed_recommendations.json', 'r') as f:
+    recommendations_data = json.load(f)
 
 @app.route('/')
 def index():
@@ -15,14 +16,14 @@ def index():
 def recommend():
     if request.method == 'POST':
         data = request.get_json()
-        genre_preference = data.get('genre', '')
+        genre_preference = data.get('genre', '').split(',')[0].strip()  # Take first genre
         runtime_pref = data.get('runtime', 'medium')
         age = int(data.get('age', 18))
         top_n = int(data.get('top_n', 5))
         min_rating = float(data.get('min_rating', 8.0))
         
         try:
-            recommendations = recommend_movies(
+            recommendations = get_recommendations(
                 genre_preference, 
                 runtime_pref, 
                 age, 
@@ -33,64 +34,39 @@ def recommend():
         except Exception as e:
             return jsonify({'success': False, 'error': str(e)})
 
-def recommend_movies(genre_preference, runtime_pref, age, top_n=5, min_rating=8.0):
+def get_recommendations(genre_preference, runtime_pref, age, top_n=5, min_rating=8.0):
     """
-    Recommend movies based on genre preference, runtime preference, and age
-    
-    Parameters:
-    - genre_preference: string (e.g., "Drama, Crime")
-    - runtime_pref: string ("short", "medium", or "long")
-    - age: integer (user's age)
-    - top_n: number of recommendations to return
-    - min_rating: minimum IMDB rating to consider
-    
-    Returns:
-    - List of recommended movie dictionaries with details
+    Get pre-computed recommendations based on user preferences
     """
-    # Load the model components
-    tfidf = model['tfidf']
-    cosine_sim = model['cosine_sim']
-    movies = model['movies']
+    # Round min_rating to nearest available value
+    available_ratings = [7.0, 7.5, 8.0, 8.5]
+    min_rating = min(available_ratings, key=lambda x: abs(x - min_rating))
     
-    # Determine age rating based on user's age
+    # Ensure top_n is one of the available values
+    available_top_ns = [5, 10, 15]
+    top_n = min(available_top_ns, key=lambda x: abs(x - top_n))
+    
+    # Map age to representative age
     if age < 10:
-        age_rating = 'all'
+        mapped_age = 8
     elif 10 <= age < 13:
-        age_rating = '10+'
+        mapped_age = 11
     elif 13 <= age < 17:
-        age_rating = '13+'
+        mapped_age = 15
     else:
-        age_rating = '17+'
+        mapped_age = 18
     
-    # Clean genre input
-    cleaned_genre = ' '.join([g.strip().lower() for g in genre_preference.split(',')])
+    # Create the key
+    key = f"{genre_preference}_{runtime_pref}_{mapped_age}_{min_rating}_{top_n}"
     
-    # Create query string
-    query = f"{cleaned_genre} {runtime_pref.lower()} {age_rating}"
-    
-    # Vectorize the query
-    query_vec = tfidf.transform([query])
-    
-    # Compute similarity between query and all movies
-    from sklearn.metrics.pairwise import cosine_similarity
-    sim_scores = cosine_similarity(query_vec, tfidf.transform(model['features'])).flatten()
-    
-    # Create a copy of movies dataframe and add similarity scores
-    import pandas as pd
-    valid_movies = movies.copy()
-    valid_movies['similarity'] = sim_scores
-    
-    # Filter movies by minimum rating
-    valid_movies = valid_movies[valid_movies['rating'] >= min_rating]
-    
-    # Get top N most similar movies
-    recommendations = valid_movies.sort_values(
-        by=['similarity', 'rating'], 
-        ascending=[False, False]
-    ).head(top_n)
-    
-    # Prepare output
-    return recommendations[['name', 'year', 'genre', 'rating', 'runtime_category', 'tagline']].to_dict('records')
+    # Get recommendations
+    if key in recommendations_data:
+        return recommendations_data[key]
+    else:
+        # Return closest match if exact key not found
+        import difflib
+        closest_key = difflib.get_close_matches(key, recommendations_data.keys(), n=1)[0]
+        return recommendations_data[closest_key]
 
 if __name__ == '__main__':
     app.run(debug=True)
